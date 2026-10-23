@@ -207,11 +207,20 @@ def harvest_corrections_from_note(
         print(f"  Error: Source PDF not found: {pdf_rel}")
         return []
 
-    # Get raw baseline text
-    rel_note = f"{note_path.parent.name}/{note_path.name}"
-    raw_text = find_raw_transcript_in_tarball(tar_backup_path, rel_note)
+    # Get raw baseline text: check for local <note>.raw.md first, then fallback to backup tarball
+    raw_file = note_path.with_name(f"{note_path.stem}.raw.md")
+    if raw_file.exists():
+        print(f"  Found local raw baseline: {raw_file.name}")
+        with open(raw_file, "r", encoding="utf-8") as rf:
+            raw_text = rf.read()
+    else:
+        rel_note = f"{note_path.parent.name}/{note_path.name}"
+        raw_text = find_raw_transcript_in_tarball(tar_backup_path, rel_note)
+        if raw_text:
+            print(f"  Found raw baseline in backup tarball for {rel_note}")
+
     if not raw_text:
-        print(f"  Warning: Raw baseline for {note_path.name} not found in backup tarball.")
+        print(f"  Warning: Raw baseline for {note_path.name} not found (checked {raw_file.name} and backup tarball).")
         return []
 
     raw_paras = parse_markdown_paragraphs(raw_text)
