@@ -1,0 +1,43 @@
+# Python & environment
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+env/
+.env
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Heavy model checkpoints
+trocr_finetuned/
+models/
+*.pt
+*.bin
+*.safetensors
+*.onnx
+
+# Private journal data & training batches (lives in private handwriting-data repo)
+batch_*/
+spot_corrections/
+notebooks/
+sample_extracted/
+transcribed/
+chatgpt-conversations/
+data/
+
+# Private PDFs, text files, and vocabulary caches
+*.pdf
+*.csv
+*.tar.gz
+vault_vocab.json
+english_words.txt
+*.raw.md
+*.clean.md
+
+# Logs & temp image crops
+tmp/
+*.log
+*.png
+!charts/*.png

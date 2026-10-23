@@ -1,0 +1,10 @@
+torch
+transformers
+datasets
+evaluate
+jiwer
+pillow
+accelerate
+scikit-learn
+pypdf
+numpy
