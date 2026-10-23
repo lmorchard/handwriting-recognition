@@ -105,8 +105,12 @@ simmer: train-simmer
 
 transcribe:
 	@if [ -z "$(PDF)" ]; then echo "Error: Specify PDF=<path-to-journal.pdf>"; exit 1; fi
-	@echo "Transcribing $(PDF) with $(MODEL_DIR)..."
-	$(UV) run --with-requirements requirements.txt $(PYTHON) transcribe_journal.py $(PDF) --model $(MODEL_DIR)
+	@echo "Transcribing, polishing, and saving $(PDF) directly into Obsidian vault..."
+	$(UV) run --with-requirements requirements.txt $(PYTHON) transcribe_journal.py $(PDF) \
+		-o "$(VAULT_DIR)/notepads/transcriptions" \
+		--by-year \
+		--clean \
+		--model $(MODEL_DIR)
 
 sweep:
 	@echo "Running full unattended archive sweep on $(VAULT_DIR)/notepads/journals/*.pdf..."

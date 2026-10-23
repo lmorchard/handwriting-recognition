@@ -38,44 +38,32 @@ The daily lifecycle is designed around a zero-friction active learning flywheel:
                      [ Updated TrOCR Checkpoint ]
 ```
 
-### Step 1: Transcribe Today's Journal PDF
+### Step 1: Transcribe & Clean Directly into Obsidian Vault
 
-When you export today's journal from your BOOX tablet (synced into `notepads/journals/YYYY-MM-DD.pdf`):
+When today's journal PDF exports from your BOOX tablet (synced into `notepads/journals/YYYY-MM-DD.pdf`), run a single command:
 
 ```bash
-# Using Make:
+# Using Make (accepts a bare filename or full path):
+make transcribe PDF=2026-10-22.pdf
+
+# Or specify a full path:
 make transcribe PDF=~/Documents/obsidian/main/notepads/journals/2026-10-22.pdf
-
-# Or directly with uv:
-uv run --with-requirements requirements.txt python3 transcribe_journal.py \
-  ~/Documents/obsidian/main/notepads/journals/2026-10-22.pdf \
-  -o ~/Documents/obsidian/main/notepads/transcriptions/2026/2026-10-22.md
 ```
 
-* **Speed**: ~15 seconds on Apple Silicon M5 Max GPU (`mps`), or ~60–90 seconds on Linux VM CPU.
-* **Output**: Generates formatted Markdown with frontmatter linking back to the source PDF, automatic paragraph breaks, and thematic divider rules (`---`).
-
----
-
-### Step 2: Run Lexicon Post-Processing Polish
-
-Run the bounded Levenshtein post-processor against your 166k-word personal Obsidian vault lexicon:
-
+*(Direct Python CLI alternative)*:
 ```bash
-# Using Make:
-make clean-transcript FILE=~/Documents/obsidian/main/notepads/transcriptions/2026/2026-10-22.md
-
-# Or directly:
-python3 clean_transcript.py ~/Documents/obsidian/main/notepads/transcriptions/2026/2026-10-22.md
+uv run --with-requirements requirements.txt python3 transcribe_journal.py 2026-10-22.pdf --clean
 ```
 
-* **What it does**: Corrects minor OCR ambiguities (e.g. `think table` $\to$ `e-ink tablet`, `to next` $\to$ `to text`) using an edit distance clamp ($\le 2$) anchored to your personal vault vocabulary.
-* **Zero Hallucinatory Smoothing**: Unlike generative LLMs, it cannot invent phrasing or smooth authentic quirks.
-* **Safety Baseline**: Automatically saves a temporary `<filename>.raw.md` baseline alongside the note for rollback and diffing.
+**What this does automatically in one pass**:
+1. **TrOCR Inference**: Runs line segmentation and vision recognition (~15s on M5 Max GPU, ~60–90s on Linux CPU).
+2. **Lexicon Polish**: Automatically applies the Levenshtein clamp ($\le 2$) against your 166k-word vault lexicon to resolve OCR typos without generative hallucination.
+3. **Direct Vault Placement**: Moves the polished Markdown straight into your Obsidian vault under `notepads/transcriptions/YYYY/YYYY-MM-DD.md`.
+4. **Safety Baseline**: Leaves a `<filename>.raw.md` baseline alongside the note so diffing is ready for harvesting.
 
 ---
 
-### Step 3: Review and Edit in Obsidian
+### Step 2: Review and Edit in Obsidian
 
 Open Obsidian and read through `notepads/transcriptions/2026/2026-10-22.md`.
 * Fix any transcription typos directly in Markdown just like editing a normal note.
@@ -83,29 +71,25 @@ Open Obsidian and read through `notepads/transcriptions/2026/2026-10-22.md`.
 
 ---
 
-### Step 4: Harvest Edits into the Active-Learning Simmer Buffer
+### Step 3: Harvest Edits into the Active-Learning Simmer Buffer
 
 Once you finish editing, ingest your changes:
 
 ```bash
 # Using Make:
 make harvest NOTE=~/Documents/obsidian/main/notepads/transcriptions/2026/2026-10-22.md
-
-# Or directly:
-uv run --with-requirements requirements.txt python3 harvest_corrections.py \
-  ~/Documents/obsidian/main/notepads/transcriptions/2026/2026-10-22.md
 ```
 
 **What happens automatically**:
-1. Diffs your edited Markdown against the raw unedited baseline (`.raw.md` or archive backup tarball).
+1. Diffs your edited Markdown against the `2026-10-22.raw.md` baseline.
 2. Aligns word corrections to physical lines using `difflib.SequenceMatcher`.
 3. Opens the source PDF, crops the exact physical ink stroke strips for those lines, and saves them to `../handwriting-data/spot_corrections/images/`.
 4. Appends the image paths and your corrected text to `../handwriting-data/spot_corrections/dataset.csv`.
-5. Cleans up the temporary `.raw.md` baseline file.
+5. Cleans up the temporary `.raw.md` baseline file now that corrections are banked.
 
 ---
 
-### Step 5: Version in Private Forgejo & Simmer Retrain
+### Step 4: Version in Private Forgejo & Simmer Retrain
 
 Commit the harvested training pairs to your private Git repository:
 

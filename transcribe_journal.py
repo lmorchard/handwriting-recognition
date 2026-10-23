@@ -35,6 +35,14 @@ from extract_lines import (
     render_line_strip,
 )
 
+try:
+    from config import VAULT_DIR, MODEL_DIR
+except ImportError:
+    VAULT_DIR = Path.home() / "Documents/obsidian/main"
+    MODEL_DIR = Path("trocr_finetuned/best_model")
+
+from clean_transcript import LexiconModel, clean_markdown_document
+
 
 def clean_ocr_text(text: str) -> str:
     """Normalize common OCR spacing artifacts around punctuation and contractions."""
@@ -214,6 +222,7 @@ def transcribe_single_pdf(
     pages: Optional[List[int]] = None,
     save_crops: bool = False,
     quiet: bool = False,
+    lexicon: Optional[LexiconModel] = None,
 ) -> Tuple[int, float]:
     """Transcribe a single PDF file using an already initialized JournalTranscriber instance."""
     crops_dir = None
@@ -249,8 +258,18 @@ def transcribe_single_pdf(
     md_content = format_markdown(page_results, pdf_file, model_name=Path(transcriber.model_path).name)
 
     out_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_file, "w", encoding="utf-8") as f:
-        f.write(md_content)
+    if lexicon is not None:
+        raw_file = out_file.with_name(f"{out_file.stem}.raw.md")
+        with open(raw_file, "w", encoding="utf-8") as rf:
+            rf.write(md_content)
+        cleaned_text, changes = clean_markdown_document(raw_file, lexicon)
+        with open(out_file, "w", encoding="utf-8") as cf:
+            cf.write(cleaned_text)
+        if not quiet:
+            print(f"    ✨ Polished with vault lexicon ({len(changes)} corrections). Raw baseline saved to: {raw_file.name}")
+    else:
+        with open(out_file, "w", encoding="utf-8") as f:
+            f.write(md_content)
 
     elapsed = time.time() - t0
     return total_lines, elapsed
@@ -296,16 +315,29 @@ def resolve_pdf_paths(paths_or_globs: List[str]) -> List[Path]:
     matched = []
     for p in paths_or_globs:
         expanded = os.path.expanduser(p)
-        if any(char in expanded for char in "*?[]"):
-            files = glob.glob(expanded)
-            matched.extend([Path(f).resolve() for f in files if f.lower().endswith(".pdf")])
-        else:
-            path_obj = Path(expanded).resolve()
-            if path_obj.is_dir():
-                matched.extend(sorted(path_obj.glob("*.pdf")))
-                matched.extend(sorted(path_obj.glob("*.PDF")))
-            elif path_obj.is_file() and path_obj.suffix.lower() == ".pdf":
-                matched.append(path_obj)
+        candidates = [Path(expanded)]
+        if VAULT_DIR.exists():
+            candidates.append(VAULT_DIR / "notepads/journals" / p)
+            candidates.append(VAULT_DIR / "notepads/journals" / expanded)
+
+        found_candidate = False
+        for c in candidates:
+            if c.is_file() and c.suffix.lower() == ".pdf":
+                matched.append(c.resolve())
+                found_candidate = True
+                break
+            elif c.is_dir():
+                matched.extend(sorted(c.glob("*.pdf")))
+                matched.extend(sorted(c.glob("*.PDF")))
+                found_candidate = True
+                break
+
+        if not found_candidate:
+            if any(char in expanded for char in "*?[]"):
+                files = glob.glob(expanded)
+                if not files and VAULT_DIR.exists():
+                    files = glob.glob(str(VAULT_DIR / "notepads/journals" / expanded))
+                matched.extend([Path(f).resolve() for f in files if f.lower().endswith(".pdf")])
             else:
                 print(f"Warning: '{p}' is not a PDF file or matching directory, skipping.")
 
@@ -324,13 +356,17 @@ def main():
         description="End-to-end transcription of BOOX journal PDFs to Markdown (single file or batch/glob)."
     )
     parser.add_argument("pdf_paths", nargs="+", help="Path(s), directory, or glob pattern(s) of BOOX journal PDFs")
-    parser.add_argument("-o", "--output", help="Output Markdown file (single input) or directory (batch)")
-    parser.add_argument("--model", default="trocr_finetuned/best_model", help="Path to TrOCR model checkpoint")
+    default_out = str(VAULT_DIR / "notepads/transcriptions") if VAULT_DIR.exists() else "transcribed"
+    parser.add_argument("-o", "--output", default=default_out, help=f"Output Markdown file (single input) or directory (batch) (default: {default_out})")
+    parser.add_argument("--model", default=str(MODEL_DIR), help=f"Path to TrOCR model checkpoint (default: {MODEL_DIR})")
     parser.add_argument("--pages", nargs="+", type=int, help="Specific 1-based page numbers (default: all)")
     parser.add_argument("--batch-size", type=int, default=8, help="Batch size for inference (default: 8)")
     parser.add_argument("--save-crops", action="store_true", help="Save intermediate line crop images for review")
     parser.add_argument("--skip-existing", action="store_true", help="Skip if target Markdown exists and is non-empty")
-    parser.add_argument("--by-year", action="store_true", help="Nest outputs into YYYY/ subdirectories based on filename")
+    parser.add_argument("--by-year", action="store_true", default=True, help="Nest outputs into YYYY/ subdirectories based on filename (default: True)")
+    parser.add_argument("--no-by-year", dest="by_year", action="store_false", help="Disable YYYY/ subdirectories")
+    parser.add_argument("--clean", action="store_true", default=True, help="Apply Levenshtein vault lexicon cleanup and save .raw.md baseline (default: True)")
+    parser.add_argument("--no-clean", dest="clean", action="store_false", help="Disable automatic lexicon cleanup")
     parser.add_argument("--manifest", help="Path to write JSON manifest summary (default: <output_dir>/manifest.json)")
     parser.add_argument("-q", "--quiet", action="store_true", help="Suppress line-by-line verbose output")
 
@@ -342,6 +378,13 @@ def main():
         sys.exit(1)
 
     print(f"Found {len(files)} PDF volume(s) to transcribe.")
+
+    lexicon = None
+    if args.clean:
+        if not args.quiet:
+            print("Loading vault vocabulary lexicon for bounded post-processing...")
+        lexicon = LexiconModel()
+        lexicon.load_or_build()
 
     # Single-file target with custom filename
     is_single_file_custom = (
@@ -361,8 +404,9 @@ def main():
             pages=args.pages,
             save_crops=args.save_crops,
             quiet=args.quiet,
+            lexicon=lexicon,
         )
-        print(f"Done! Markdown saved to: {out_file}")
+        print(f"\n✨ Complete! Markdown saved to: {out_file}")
         return
 
     # Batch output directory
@@ -432,6 +476,7 @@ def main():
                 pages=args.pages,
                 save_crops=args.save_crops,
                 quiet=args.quiet,
+                lexicon=lexicon,
             )
             total_batch_lines += lines
             total_batch_time += elapsed
