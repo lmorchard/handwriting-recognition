@@ -391,5 +391,22 @@ With the full archive transcribed and cleaned, the next operational phase focuse
 * **Digital Ink Scope**: Cloud GPU compute is deliberately avoided for the BOOX pipeline; local CPU inference (~60s) and Portia GPU bursts (~90s) keep running costs at $0, eliminate IAM/VPC networking complexity, and preserve total data sovereignty.
 * **Future Paper Scope (Phase 2)**: Cloud GPU resources are reserved for physical notebook scanning, where heavy computer vision layout analysis (YOLO/CRAFT), perspective unwarping, shadow removal, and massive multi-epoch synthetic data generation may benefit from elastic GPU clusters.
 
+---
+
+## 18. Phase 1 Operational Milestones & Data Decoupling
+
+The conclusion of Phase 1 establishes the long-term operational footing for the pipeline:
+
+1. **Firewall Between Code and Private Data**:
+   * **Public Tooling (`lmorchard/handwriting-recognition`)**: Hosted on GitHub, containing pure pipeline code, documentation, and publication plots. Local git history was squashed (`7132087`) to permanently expunge historical commits that briefly contained personal batch CSVs.
+   * **Private Datasets (`lmorchard/handwriting-data`)**: Hosted on the self-hosted homelab Forgejo instance (`0xDECAFBAD hub` at `myriad-docker:22222`). Contains all 30 training batches (2,721 lines), active-learning spot corrections buffer, vault vocabulary caches, and fine-tuned model checkpoints (`models/best_model/`).
+2. **Autonomous Zero-Argument Makefile Workflow**:
+   * `make transcribe`: Automatically scans `notepads/journals/*.pdf`, skips already transcribed files, runs TrOCR inference, applies Levenshtein vault polish, and saves `.md` and `.raw.md` directly into the Obsidian vault.
+   * `make harvest`: Automatically scans `notepads/transcriptions/` for notes with `.raw.md` baselines, diffs human edits, crops physical ink lines from the source PDF, appends them to `spot_corrections/dataset.csv`, cleans up `.raw.md`, and auto-commits and pushes to Forgejo.
+3. **The Active Simmer Buffer (179 Lines Harvested)**:
+   * Successfully harvested 179 real-world ground-truth lines directly from human edits across `2026-01-01`, `2026-10-21`, and `2026-10-22`.
+   * Proved that continual active learning operates with zero labeling UI friction: normal reading and typo-fixing in Obsidian directly trains the next generation of model weights.
+
+
 
 
