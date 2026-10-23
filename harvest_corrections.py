@@ -299,7 +299,7 @@ def harvest_corrections_from_note(
 
 def main():
     parser = argparse.ArgumentParser(description="Harvest Ground-Truth Corrections from User-Edited Obsidian Notes.")
-    parser.add_argument("note", help="Path to edited Markdown note (or directory of notes)")
+    parser.add_argument("notes", nargs="*", help="Path to edited Markdown note(s) (default: auto-scan vault for edited .raw.md notes)")
     parser.add_argument(
         "--tarball",
         default=str(BACKUP_TARBALL),
@@ -311,25 +311,67 @@ def main():
         help=f"Output directory for harvested dataset and images (default: {DATA_DIR / 'spot_corrections'})",
     )
     parser.add_argument("--model", default=str(MODEL_DIR), help=f"Path to TrOCR model checkpoint (default: {MODEL_DIR})")
+    parser.add_argument("--auto-commit", action="store_true", default=False, help="Automatically git commit and push harvested corrections in handwriting-data")
+    parser.add_argument("--clean-raw", action="store_true", default=True, help="Remove .raw.md baseline file after successfully harvesting corrections (default: True)")
+    parser.add_argument("--no-clean-raw", dest="clean_raw", action="store_false", help="Keep .raw.md baseline file after harvesting")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     tar_path = Path(args.tarball)
 
-    target_path = Path(args.note)
-    if target_path.is_file():
-        files = [target_path]
-    elif target_path.is_dir():
-        files = sorted(target_path.rglob("*.md"))
+    if args.notes:
+        files = []
+        for n in args.notes:
+            target_path = Path(n)
+            if target_path.is_file():
+                files.append(target_path)
+            elif target_path.is_dir():
+                files.extend(sorted(target_path.rglob("*.md")))
+            else:
+                print(f"Warning: Path not found: {target_path}")
     else:
-        print(f"Error: Path not found: {target_path}")
-        sys.exit(1)
+        # Auto-discover notes that have a .raw.md baseline and differ from it
+        transcriptions_dir = VAULT_DIR / "notepads/transcriptions"
+        if not transcriptions_dir.exists():
+            print(f"Error: Transcriptions directory not found: {transcriptions_dir}")
+            sys.exit(1)
+
+        raw_files = sorted(transcriptions_dir.rglob("*.raw.md"))
+        files = []
+        for rf in raw_files:
+            stem = rf.name[:-7]  # strip .raw.md
+            edited_file = rf.with_name(f"{stem}.md")
+            if edited_file.exists():
+                try:
+                    raw_c = rf.read_text(encoding="utf-8")
+                    edited_c = edited_file.read_text(encoding="utf-8")
+                    if raw_c.strip() != edited_c.strip():
+                        files.append(edited_file)
+                except Exception:
+                    pass
+
+        if not files:
+            print(f"✨ All transcriptions up to date! (0 pending edits found among {len(raw_files)} baseline files in {transcriptions_dir.name}).")
+            return
+
+        print(f"Found {len(files)} note(s) with pending human edits to harvest.")
 
     all_harvested = []
+    successful_notes = []
     for f in files:
         records = harvest_corrections_from_note(f, tar_path, out_dir, model_path=args.model)
-        all_harvested.extend(records)
+        if records:
+            all_harvested.extend(records)
+            successful_notes.append(f.name)
+            if args.clean_raw:
+                rf = f.with_name(f"{f.stem}.raw.md")
+                if rf.exists():
+                    try:
+                        rf.unlink()
+                        print(f"  Cleaned up baseline: {rf.name}")
+                    except Exception as e:
+                        print(f"  Warning: Failed to remove {rf.name}: {e}")
 
     if not all_harvested:
         print("\nNo corrections found or notes are identical to baseline.")
@@ -349,7 +391,47 @@ def main():
     print("\n" + "=" * 65)
     print(f"SUCCESS: Harvested {len(all_harvested)} corrected line(s) into {csv_path}!")
     print(f"Line images stored in: {out_dir / 'images'}")
-    print("=" * 65 + "\n")
+    print("=" * 65)
+
+    # Auto-commit and push to Forgejo if requested
+    if args.auto_commit and successful_notes:
+        import subprocess
+        note_summary = ", ".join(successful_notes[:3])
+        if len(successful_notes) > 3:
+            note_summary += f" (+{len(successful_notes)-3} more)"
+        msg = f"Auto-harvest {len(all_harvested)} spot corrections from {note_summary}"
+        data_repo_dir = out_dir.parent
+        print(f"\n📦 Auto-committing {len(all_harvested)} spot correction(s) in {data_repo_dir}...")
+        subprocess.run(["git", "add", "spot_corrections/"], cwd=data_repo_dir, check=False)
+        commit_res = subprocess.run(
+            ["git", "commit", "--no-gpg-sign", "-m", msg],
+            cwd=data_repo_dir,
+            capture_output=True,
+            text=True,
+        )
+        if commit_res.returncode == 0:
+            print(f"  ✓ Committed: '{msg}'")
+            print("🚀 Pushing to origin main on Forgejo...")
+            push_res = subprocess.run(
+                ["git", "push", "origin", "main"],
+                cwd=data_repo_dir,
+                capture_output=True,
+                text=True,
+            )
+            if push_res.returncode == 0:
+                print("  ✓ Successfully pushed to Forgejo.")
+            else:
+                print(f"  ⚠️ Git push warning: {push_res.stderr.strip()}")
+        else:
+            print(f"  (Git commit skipped or clean: {commit_res.stderr.strip()})")
+
+    # Check total active simmer buffer size
+    if csv_path.exists():
+        with open(csv_path, "r", encoding="utf-8") as f:
+            total_lines = sum(1 for _ in f) - 1
+        print(f"\n📊 Total active simmer buffer: {total_lines} lines.")
+        if total_lines >= 50:
+            print(f"💡 Simmer buffer has reached {total_lines} lines! Run 'make simmer' on Portia whenever you want a 90-second GPU boost.")
 
 
 if __name__ == "__main__":

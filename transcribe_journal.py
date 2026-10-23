@@ -355,7 +355,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="End-to-end transcription of BOOX journal PDFs to Markdown (single file or batch/glob)."
     )
-    parser.add_argument("pdf_paths", nargs="+", help="Path(s), directory, or glob pattern(s) of BOOX journal PDFs")
+    parser.add_argument("pdf_paths", nargs="*", help="Path(s), directory, or glob pattern(s) of BOOX journal PDFs (default: scan vault for new PDFs)")
     default_out = str(VAULT_DIR / "notepads/transcriptions") if VAULT_DIR.exists() else "transcribed"
     parser.add_argument("-o", "--output", default=default_out, help=f"Output Markdown file (single input) or directory (batch) (default: {default_out})")
     parser.add_argument("--model", default=str(MODEL_DIR), help=f"Path to TrOCR model checkpoint (default: {MODEL_DIR})")
@@ -371,13 +371,33 @@ def main():
     parser.add_argument("-q", "--quiet", action="store_true", help="Suppress line-by-line verbose output")
 
     args = parser.parse_args()
+
+    if not args.pdf_paths:
+        if VAULT_DIR.exists():
+            args.pdf_paths = [str(VAULT_DIR / "notepads/journals/*.pdf")]
+            args.skip_existing = True
+        else:
+            print("Error: No PDF files specified and VAULT_DIR not found.")
+            sys.exit(1)
+
     files = resolve_pdf_paths(args.pdf_paths)
 
-    if not files:
-        print("Error: No valid PDF files matched the provided pattern(s).")
-        sys.exit(1)
+    if args.skip_existing and args.output:
+        out_base = Path(args.output).resolve()
+        untranscribed = []
+        for pdf in files:
+            year_match = re.search(r"(\d{4})-\d{2}-\d{2}", pdf.stem)
+            year_folder = year_match.group(1) if year_match else "misc"
+            target_md = (out_base / year_folder / f"{pdf.stem}.md") if args.by_year else (out_base / f"{pdf.stem}.md")
+            if not (target_md.exists() and target_md.stat().st_size > 50):
+                untranscribed.append(pdf)
+        files = untranscribed
 
-    print(f"Found {len(files)} PDF volume(s) to transcribe.")
+    if not files:
+        print("✨ All journals up to date! (0 untranscribed PDFs found in notepads/journals/).")
+        return
+
+    print(f"Found {len(files)} new PDF volume(s) to transcribe.")
 
     lexicon = None
     if args.clean:

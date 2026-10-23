@@ -40,20 +40,13 @@ The daily lifecycle is designed around a zero-friction active learning flywheel:
 
 ### Step 1: Transcribe & Clean Directly into Obsidian Vault
 
-When today's journal PDF exports from your BOOX tablet (synced into `notepads/journals/YYYY-MM-DD.pdf`), run a single command:
+When you write an entry on your BOOX tablet and it syncs to `notepads/journals/`, just run:
 
 ```bash
-# Using Make (accepts a bare filename or full path):
-make transcribe PDF=2026-10-22.pdf
-
-# Or specify a full path:
-make transcribe PDF=~/Documents/obsidian/main/notepads/journals/2026-10-22.pdf
+make transcribe
 ```
 
-*(Direct Python CLI alternative)*:
-```bash
-uv run --with-requirements requirements.txt python3 transcribe_journal.py 2026-10-22.pdf --clean
-```
+**Zero Arguments Needed:** It automatically scans `notepads/journals/*.pdf`, skips anything already transcribed, and only processes new entries. *(You can still specify a single file with `make transcribe PDF=2026-10-22.pdf` if desired).*
 
 **What this does automatically in one pass**:
 1. **TrOCR Inference**: Runs line segmentation and vision recognition (~15s on M5 Max GPU, ~60–90s on Linux CPU).
@@ -71,21 +64,24 @@ Open Obsidian and read through `notepads/transcriptions/2026/2026-10-22.md`.
 
 ---
 
-### Step 3: Harvest Edits into the Active-Learning Simmer Buffer
+### Step 3: Harvest, Commit & Push in One Step
 
-Once you finish editing, ingest your changes:
+Once you finish editing in Obsidian, just run:
 
 ```bash
-# Using Make:
-make harvest NOTE=~/Documents/obsidian/main/notepads/transcriptions/2026/2026-10-22.md
+make harvest
 ```
 
+**Zero Arguments Needed:** It automatically scans `notepads/transcriptions/` for any `.raw.md` baselines, detects which notes you edited, crops the ink lines, updates the dataset, and commits & pushes to Forgejo! *(You can still specify a single note with `make harvest NOTE=...` if desired).*
+
 **What happens automatically**:
-1. Diffs your edited Markdown against the `2026-10-22.raw.md` baseline.
+1. Diffs your edited Markdown against the `.raw.md` baseline.
 2. Aligns word corrections to physical lines using `difflib.SequenceMatcher`.
 3. Opens the source PDF, crops the exact physical ink stroke strips for those lines, and saves them to `../handwriting-data/spot_corrections/images/`.
 4. Appends the image paths and your corrected text to `../handwriting-data/spot_corrections/dataset.csv`.
 5. Cleans up the temporary `.raw.md` baseline file now that corrections are banked.
+6. **Auto Git Commit & Push**: Automatically commits the new spot corrections and pushes to your private Forgejo repository.
+7. **Simmer Alert**: Reminds you when total spot corrections reach $\ge 50$ or $100$ lines so you know when to run `make simmer`.
 
 ---
 

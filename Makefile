@@ -6,6 +6,7 @@
 # ==============================================================================
 
 SHELL := /bin/bash
+export PATH := /opt/homebrew/bin:$(HOME)/.local/bin:$(HOME)/.cargo/bin:$(PATH)
 PYTHON ?= python3
 UV ?= uv
 
@@ -81,9 +82,19 @@ stage-batch:
 	$(UV) run --with-requirements requirements.txt $(PYTHON) pretranscribe.py $(PDF) --data-dir $(DATA_DIR) --model $(MODEL_DIR)
 
 harvest:
-	@if [ -z "$(NOTE)" ]; then echo "Error: Specify NOTE=<path-to-edited-note.md>"; exit 1; fi
-	@echo "Harvesting edits from $(NOTE)..."
-	$(UV) run --with-requirements requirements.txt $(PYTHON) harvest_corrections.py $(NOTE) --out-dir $(DATA_DIR)/spot_corrections --model $(MODEL_DIR)
+	@if [ -n "$(NOTE)" ]; then \
+		echo "Harvesting edits from $(NOTE)..."; \
+		$(UV) run --with-requirements requirements.txt $(PYTHON) harvest_corrections.py "$(NOTE)" \
+			--out-dir $(DATA_DIR)/spot_corrections \
+			--model $(MODEL_DIR) \
+			--auto-commit; \
+	else \
+		echo "Scanning $(VAULT_DIR)/notepads/transcriptions for notes with pending edits..."; \
+		$(UV) run --with-requirements requirements.txt $(PYTHON) harvest_corrections.py \
+			--out-dir $(DATA_DIR)/spot_corrections \
+			--model $(MODEL_DIR) \
+			--auto-commit; \
+	fi
 
 # ------------------------------------------------------------------------------
 # Training
@@ -104,13 +115,22 @@ simmer: train-simmer
 # ------------------------------------------------------------------------------
 
 transcribe:
-	@if [ -z "$(PDF)" ]; then echo "Error: Specify PDF=<path-to-journal.pdf>"; exit 1; fi
-	@echo "Transcribing, polishing, and saving $(PDF) directly into Obsidian vault..."
-	$(UV) run --with-requirements requirements.txt $(PYTHON) transcribe_journal.py $(PDF) \
-		-o "$(VAULT_DIR)/notepads/transcriptions" \
-		--by-year \
-		--clean \
-		--model $(MODEL_DIR)
+	@if [ -n "$(PDF)" ]; then \
+		echo "Transcribing, polishing, and saving $(PDF) into Obsidian vault..."; \
+		$(UV) run --with-requirements requirements.txt $(PYTHON) transcribe_journal.py "$(PDF)" \
+			-o "$(VAULT_DIR)/notepads/transcriptions" \
+			--by-year \
+			--clean \
+			--model $(MODEL_DIR); \
+	else \
+		echo "Scanning $(VAULT_DIR)/notepads/journals for untranscribed PDFs..."; \
+		$(UV) run --with-requirements requirements.txt $(PYTHON) transcribe_journal.py \
+			-o "$(VAULT_DIR)/notepads/transcriptions" \
+			--by-year \
+			--clean \
+			--skip-existing \
+			--model $(MODEL_DIR); \
+	fi
 
 sweep:
 	@echo "Running full unattended archive sweep on $(VAULT_DIR)/notepads/journals/*.pdf..."
