@@ -97,6 +97,8 @@ train-simmer:
 	@echo "Running fast spot-correction simmer training on $(DATA_DIR)/spot_corrections..."
 	$(UV) run --with-requirements requirements.txt $(PYTHON) train_simmer.py --data-dir $(DATA_DIR) --model $(MODEL_DIR)
 
+simmer: train-simmer
+
 # ------------------------------------------------------------------------------
 # Transcription & Ingestion
 # ------------------------------------------------------------------------------
@@ -114,6 +116,10 @@ sweep:
 		--by-year \
 		--skip-existing \
 		--model $(MODEL_DIR)
+
+clean-transcript:
+	@if [ -z "$(FILE)" ]; then echo "Error: Specify FILE=<path-to-transcript.md>"; exit 1; fi
+	$(PYTHON) clean_transcript.py "$(FILE)"
 
 clean-transcripts:
 	@echo "Running Levenshtein-clamped vault lexicon cleanup across transcripts..."

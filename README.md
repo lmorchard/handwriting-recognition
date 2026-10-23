@@ -1,92 +1,171 @@
-# Getting a computer to turn my handwriting into text
+# Personal Handwriting Recognition with TrOCR
 
-Personal handwriting recognition project for handwritten journals (BOOX e-ink tablet PDFs and physical paper notebook scans).
+A personalized handwriting recognition pipeline to transcribe handwritten journals (Onyx BOOX e-ink tablet PDFs and physical paper notebook scans) into plain Markdown text.
 
-My handwriting uses an architectural/drafting small-caps style that trips up off-the-shelf OCR engines. This project builds a personalized pipeline centered on fine-tuning Microsoft TrOCR on line-level crops.
-
-## Key Discovery: BOOX PDFs
-
-BOOX tablets export the page template (dot grid) as a raster background image (`/XObject`), but export all handwritten strokes as native vector PDF `/Ink` annotations (`/Annots`).
-
-This means:
-1. We can extract pure vector ink paths on a clean white background with zero dot-grid interference.
-2. Strokes have exact bounding coordinates, so line segmentation is computed geometrically by clustering stroke vertical centers—no Tesseract, EasyOCR, or heuristic contour slicing required.
+Fine-tuned on **2,721 personal handwriting lines** across 5 years of journals (2022–2026), achieving **2.27% Character Error Rate (CER)** on Apple Silicon M5 Max.
 
 ---
 
-## Pipeline Workflow
+## Key Discovery: BOOX Vector Ink Decoupling
 
-### Step 1: Extract Line Images from BOOX PDFs
+BOOX tablets export page templates (like dot grids) as a background raster image (`/XObject`), while exporting all handwritten stylus strokes as native vector PDF `/Ink` annotations (`/Annots`).
 
-Run the vector extraction script on one or more journal PDFs:
-
-```bash
-uv run --with pypdf,pillow,numpy python3 extract_lines.py \
-  /path/to/journal.pdf \
-  --output-dir dataset_run1 \
-  --pages 1 2 3
-```
-
-This generates:
-- `dataset_run1/images/`: Individual clean line strip PNGs (`..._p01_line01.png`, etc.).
-- `dataset_run1/<pdf_name>_lines.json`: Line metadata catalog.
-
-### Step 2: Annotate Ground Truth (Local Web UI)
-
-Launch the zero-dependency local labeling tool:
-
-```bash
-# Listen on all interfaces (default 0.0.0.0) so you can access over Tailscale:
-python3 label_ui.py --catalog dataset_run1/<pdf_name>_lines.json --port 8080
-
-# Or explicitly bind:
-python3 label_ui.py --catalog dataset_run1/<pdf_name>_lines.json --host 0.0.0.0 --port 8080
-```
-
-Open `http://localhost:8080` (or `http://decafclaw:8080` over Tailscale) in your browser:
-- Header dropdown jump selector with live progress checkmarks (`✓` / `○`) and line text previews.
-- Displays line image crop with keyboard autofocus.
-- Type transcription in standard sentence casing (`Today I went...`).
-- Press <kbd>Enter</kbd> to save and advance; <kbd>Cmd+Left</kbd> / <kbd>Cmd+Right</kbd> to navigate.
-- Automatically saves progress to `<pdf_name>_lines.json` and syncs to `dataset_run1/dataset.csv`.
-
-### Step 3: Fine-Tune TrOCR on Apple Silicon / GPU
-
-Fine-tune `microsoft/trocr-base-handwritten` across one or more batches using Hugging Face `Seq2SeqTrainer` and Apple Silicon Metal Performance Shaders (`mps`):
-
-```bash
-uv run --with-requirements requirements.txt python3 train_trocr.py \
-  --batches batch_aug26 batch_aug25 \
-  --epochs 10 \
-  --batch-size 4
-```
-
-- Automatically detects and uses Apple Silicon GPU (`mps`) on macOS (~1.5 it/s, 5.1 minutes for 10 epochs across 169 lines on M5 Max).
-- Evaluates Character Error Rate (CER) per epoch (achieved **6.44% CER**) and saves the best model to `trocr_finetuned/best_model`.
-
-### Step 4: Transcribe Entire Journal Volumes to Markdown
-
-Run end-to-end automated transcription on any raw BOOX PDF:
-
-```bash
-# Transcribe directly to Markdown:
-uv run --with-requirements requirements.txt python3 transcribe_journal.py path/to/journal.pdf
-
-# Or specify custom output path:
-uv run --with-requirements requirements.txt python3 transcribe_journal.py path/to/journal.pdf -o vault/journals/2026/2026-08-24.md
-```
-
-- Extracts vector lines in-memory without saving scratch files.
-- Detects paragraph spacing and thematic divider rules (`---`).
-- Normalizes punctuation and contraction spacing.
-- Transcribes a full 3-page volume (~85 lines) in **~15 seconds** on Apple M5 Max.
+* **Zero Dot-Grid Noise**: Handwriting can be rendered directly from vector stroke paths onto a pure white canvas—eliminating dot grids, scanning artifacts, and paper texture without computer vision morphology.
+* **Geometric Line Segmentation**: Every stroke has exact bounding coordinates (`[x1, y1, x2, y2]`). Lines are grouped geometrically by vertical clustering without Tesseract, CRAFT, or OpenCV contour slicing.
 
 ---
 
-## Detailed Findings & Benchmarks
+## The Daily Workflow: Transcribe, Edit & Ingest
 
-See [FINDINGS.md](FINDINGS.md) for in-depth documentation on:
-- BOOX PDF internal vector structure.
-- Line segmentation geometry (clustering, line merging, stem-binding).
-- Avoiding rule-based boundary filter regressions.
-- Quantitative benchmarks and qualitative validation outputs on the M5 Max.
+The daily lifecycle is designed around a zero-friction active learning flywheel:
+
+```
+[ BOOX Stylus Ink ] ──► [ Daily PDF ]
+                             │
+                             ▼ (1. Transcribe: ~15s on Mac / ~60s on Linux)
+                     [ Raw Markdown ]
+                             │
+                             ▼ (2. Vault Polish: Levenshtein ≤ 2 clamp)
+                     [ Polished Markdown + .raw.md baseline ]
+                             │
+                             ▼ (3. Human Review in Obsidian)
+                     [ User-Edited Markdown ]
+                             │
+                             ▼ (4. Harvest Corrections)
+                     [ spot_corrections/ (Physical Ink Strips + Ground Truth) ]
+                             │
+                             ▼ (5. Simmer Retrain: 90s GPU burst with replay)
+                     [ Updated TrOCR Checkpoint ]
+```
+
+### Step 1: Transcribe Today's Journal PDF
+
+When you export today's journal from your BOOX tablet (synced into `notepads/journals/YYYY-MM-DD.pdf`):
+
+```bash
+# Using Make:
+make transcribe PDF=~/Documents/obsidian/main/notepads/journals/2026-10-22.pdf
+
+# Or directly with uv:
+uv run --with-requirements requirements.txt python3 transcribe_journal.py \
+  ~/Documents/obsidian/main/notepads/journals/2026-10-22.pdf \
+  -o ~/Documents/obsidian/main/notepads/transcriptions/2026/2026-10-22.md
+```
+
+* **Speed**: ~15 seconds on Apple Silicon M5 Max GPU (`mps`), or ~60–90 seconds on Linux VM CPU.
+* **Output**: Generates formatted Markdown with frontmatter linking back to the source PDF, automatic paragraph breaks, and thematic divider rules (`---`).
+
+---
+
+### Step 2: Run Lexicon Post-Processing Polish
+
+Run the bounded Levenshtein post-processor against your 166k-word personal Obsidian vault lexicon:
+
+```bash
+# Using Make:
+make clean-transcript FILE=~/Documents/obsidian/main/notepads/transcriptions/2026/2026-10-22.md
+
+# Or directly:
+python3 clean_transcript.py ~/Documents/obsidian/main/notepads/transcriptions/2026/2026-10-22.md
+```
+
+* **What it does**: Corrects minor OCR ambiguities (e.g. `think table` $\to$ `e-ink tablet`, `to next` $\to$ `to text`) using an edit distance clamp ($\le 2$) anchored to your personal vault vocabulary.
+* **Zero Hallucinatory Smoothing**: Unlike generative LLMs, it cannot invent phrasing or smooth authentic quirks.
+* **Safety Baseline**: Automatically saves a temporary `<filename>.raw.md` baseline alongside the note for rollback and diffing.
+
+---
+
+### Step 3: Review and Edit in Obsidian
+
+Open Obsidian and read through `notepads/transcriptions/2026/2026-10-22.md`.
+* Fix any transcription typos directly in Markdown just like editing a normal note.
+* Write naturally—keep slang, pet names, or personal phrasing.
+
+---
+
+### Step 4: Harvest Edits into the Active-Learning Simmer Buffer
+
+Once you finish editing, ingest your changes:
+
+```bash
+# Using Make:
+make harvest NOTE=~/Documents/obsidian/main/notepads/transcriptions/2026/2026-10-22.md
+
+# Or directly:
+uv run --with-requirements requirements.txt python3 harvest_corrections.py \
+  ~/Documents/obsidian/main/notepads/transcriptions/2026/2026-10-22.md
+```
+
+**What happens automatically**:
+1. Diffs your edited Markdown against the raw unedited baseline (`.raw.md` or archive backup tarball).
+2. Aligns word corrections to physical lines using `difflib.SequenceMatcher`.
+3. Opens the source PDF, crops the exact physical ink stroke strips for those lines, and saves them to `../handwriting-data/spot_corrections/images/`.
+4. Appends the image paths and your corrected text to `../handwriting-data/spot_corrections/dataset.csv`.
+5. Cleans up the temporary `.raw.md` baseline file.
+
+---
+
+### Step 5: Version in Private Forgejo & Simmer Retrain
+
+Commit the harvested training pairs to your private Git repository:
+
+```bash
+cd ../handwriting-data
+git add spot_corrections/
+git commit -m "Harvest corrections from 2026-10-22"
+git push origin main
+```
+
+Whenever ~50–100 spot corrections accumulate in the simmer buffer:
+
+```bash
+cd ../handwriting-recognition
+make simmer
+```
+
+This launches a **90-second GPU simmer burst** on Apple Silicon M5 Max with an experience replay buffer, baking your recent corrections into the model without catastrophic forgetting.
+
+---
+
+## Repository & Homelab Architecture
+
+This project strictly separates **public code** from **private data**:
+
+* **`handwriting-recognition` (Public GitHub)**: Open-source tooling, CLI scripts, documentation, and publication charts.
+* **`handwriting-data` (Private Forgejo / `0xDECAFBAD hub`)**: 30 verified training batches (2,721 lines), active-learning spot corrections buffer, vault vocabulary caches, and local fine-tuned model checkpoints (`models/best_model/`).
+
+### Configuration via `.env`
+
+Copy `.env.example` to `.env` to configure your local paths:
+
+```bash
+HANDWRITING_DATA_DIR=../handwriting-data
+HANDWRITING_MODEL_DIR=../handwriting-data/models/best_model
+OBSIDIAN_VAULT_DIR=/Users/lmorchard/Documents/obsidian/main
+PORT=8080
+```
+
+---
+
+## Command Reference
+
+| Target | Description |
+| :--- | :--- |
+| `make transcribe PDF=...` | Transcribe a single BOOX PDF to Markdown |
+| `make clean-transcript FILE=...` | Apply Levenshtein vault lexicon cleanup to a note |
+| `make harvest NOTE=...` | Diff user edits and harvest line crops into spot buffer |
+| `make label` | Launch local web labeling interface on port 8080 |
+| `make train` | Run multi-epoch TrOCR fine-tuning across all batches |
+| `make simmer` | Run fast 90s GPU burst on spot corrections with replay buffer |
+| `make sweep` | Transcribe entire archive (`notepads/journals/*.pdf`) with manifest |
+| `make clean-transcripts` | Run lexicon cleanup sweep across all transcripts in vault |
+| `make charts` | Regenerate high-res CER, loss, and scaling law plots |
+| `make clean` | Remove temporary caches and logs |
+
+---
+
+## Detailed Technical Documentation
+
+* **[FINDINGS.md](FINDINGS.md)**: 17-section comprehensive technical report detailing PDF reverse engineering, line clustering geometry, benchmark curves, error taxonomies, and hardware profiling.
+* **[BLOG_POST_OUTLINE.md](BLOG_POST_OUTLINE.md)**: Narrative essay structure for publication on [blog.lmorchard.com](https://blog.lmorchard.com).
+* **[HANDOFF.md](HANDOFF.md)**: Engineering handoff and operational guide for agent and human developers.
