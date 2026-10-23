@@ -1,80 +1,135 @@
-# Project Handoff: Personal Handwriting Recognition Spike
+# Project Handoff: Handwriting Recognition (Phase 1 Wrap-up & Phase 2 Launch)
 
 **Date**: 2026-10-22  
-**Current Git Commit**: Synchronized across `decafclaw` and `portia`  
-**Target Hardware**: Apple Silicon M5 Max MacBook Pro (`portia`) via PyTorch Metal Performance Shaders (`mps`)  
+**Status**: **Phase 1 Complete (Digital E-Ink Archive Transcribed & Operational)**  
+**Code Repository (Public)**: `git@github.com:lmorchard/handwriting-recognition.git` (`main` at `51deb7a`)  
+**Data Repository (Private)**: `ssh://git@myriad-docker:22222/lmorchard/handwriting-data.git` (`main` at `17afe6f`)  
+**Production Model**: `handwriting-data/models/best_model` (2,721 lines, **2.27% CER**, loss `0.2400`)  
 **Vault Reference Page**: `[[agent/pages/Handwriting OCR Project Idea]]`
 
 ---
 
-## 1. Current State & What Has Been Completed
+## 1. What Was Accomplished in Phase 1
 
-### 1. Line Extraction & Multi-Layout Geometry (`extract_lines.py`)
-- **Layer Decoupling**: Slices digital ink directly from BOOX PDF `/Annots` vector `/InkList` strokes, completely bypassing the background dot-grid raster `/XObject`.
-- **Segmentation Engine**: Unified vertical proximity clustering ($42\text{px}$), horizontal overlap line merging ($<56\text{px}$), stem-binding for tall capital pronoun "I" and "T" serifs ($|\Delta X| \le 22\text{px}$), and generous asymmetric padding (`top=24px, bottom=28px`).
-- **Landscape Two-Column Gutter Split**: Slices landscape volumes (`width > height`, e.g. `2022-10-19.pdf`, $2480 \times 1860\text{px}$) by detecting the central $50\text{px}$ gutter at $X=1240$, grouping Left Column top-to-bottom first, then Right Column second.
-
-### 2. Multi-Batch Annotation Workbench (`label_ui.py`)
-- **Zero Dependencies**: Native Python `http.server` running locally on port 8080 (`0.0.0.0` for Tailscale access).
-- **Multi-Batch Dropdown Switcher**: Live dropdown selector allows switching seamlessly across all 30 batches archive-wide without terminal restarts, displaying completion markers (`✓` / `○`) and line counts.
-- **Active-Learning Pre-Transcription**: `stage_wave3.py` batches GPU inference across newly staged batches, populating `dataset.csv` with >97% accurate initial predictions for rapid keyboard review.
-
-### 3. Empirical Model Scaling Benchmarks (`train_trocr.py`)
-* **Hardware**: Apple Silicon M5 Max via PyTorch MPS.
-* **Progression Across Runs**:
-  * **Run 1 (84 lines, 10 epochs)**: Val CER **16.0%** in 4.5 min.
-  * **Run 2 (169 lines, 10 epochs)**: Val CER **6.44%** in 5.1 min.
-  * **Run 3 (334 lines, 10 epochs)**: Val CER **6.33%** across 51 unseen lines in 11.2 min.
-  * **Run 4 (507 lines, 10 epochs)**: Val CER **5.63%** across 77 unseen lines in 16.5 min.
-  * **Run 5 (593 lines, 10 epochs)**: Val CER **4.55%** across 89 unseen lines in 14.2 min.
-  * **Run 6 (762 lines, 10 epochs)**: Val CER **3.44%** across 115 unseen lines in 54.0 min.
-  * **Run 7 (1,017 lines, 10 epochs)**: Val CER **5.10%** (moving exam dynamic across older eras).
-  * **Run 8 (1,277 lines, 12 epochs)**: Val CER **2.50% peak** at Epoch 10 (2.68% final, loss 0.2541) across 192 unseen lines spanning 2023–2026.
-  * **Run 9 (2,721 lines across 30 batches, 10 epochs)**: Val CER **2.27% peak & final** (Loss: **0.2400**) across 409 unseen validation lines spanning all 5 years (2022–2026). Runtime: 83 min on M5 Max MPS. Fully resolved *afternoon*, *turkey*, *Claude*, and *lentil stew* directly from ink. Checkpoint saved to `trocr_finetuned/best_model`.
-
-### 4. Verified Multi-Year Ground Truth Corpus (2,721 Lines across 30 Batches)
-* **2022**: 1 volume (`batch_2022_10_19` - 130 lines, 2-column landscape)
-* **2023**: 5 volumes (`batch_2023_01_26`, `batch_2023_03_26`, `batch_2023_06_13`, `batch_2023_10_25`, `batch_2023_12_14` - 460 lines)
-* **2024**: 8 volumes (`batch_2024_01_08`, `batch_2024_03_18`, `batch_2024_04_15`, `batch_2024_06_04`, `batch_2024_06_05`, `batch_2024_08_14`, `batch_2024_10_16`, `batch_2024_11_20` - 744 lines)
-* **2025**: 8 volumes (`batch_2025_01_14`, `batch_2025_06_02`, `batch_2025_08_06`, `batch_2025_08_11`, `batch_2025_08_12`, `batch_2025_08_27`, `batch_2025_08_28`, `batch_2025_10_15` - 682 lines)
-* **2026**: 8 volumes (`batch_2026_01_12`, `batch_2026_02_18`, `batch_2026_03_25`, `batch_2026_04_21`, `batch_aug20`, `batch_aug24`, `batch_aug25`, `batch_aug26` - 705 lines)
-* **Status**: 100% human-verified ground truth with zero empty entries.
-
-### 5. Production Exporter & Pilot (`transcribe_journal.py`)
-* Supports multi-file paths and directory globs (`"journals/2025-08-*.pdf"`).
-* Caches model weights in unified memory once, processing volumes in ~16s each.
-* Regex deduplication for autoregressive token loops (`exhausting exhausting exhausting` $\to$ `exhausting`).
-* Normalizes masculine ordinals (`º`) to degree symbols (`°`).
-* **August 2025 Pilot Completed**: Transcribed all 14 volumes (38 pages) into `transcribed/2025-08/` in 3m 48s with 0% crashes.
+1. **Full Archive Transcription**:
+   - Transcribed **522 out of 523 journal volumes** (43,199 lines of handwriting spanning 2014–2026) in 310 minutes on Portia's Apple Silicon M5 Max.
+   - 99.8% success rate. Exactly 1 file failed (`2026-03-10-summary.pdf`) due to a truncated PDF stream.
+   - Transcripts live in the Obsidian vault under `notepads/transcriptions/{YYYY}/{YYYY-MM-DD}.md`.
+   - Raw baseline snapshot preserved in `notepads/transcriptions_backup_raw_20261022.tar.gz` (644 KB).
+2. **Bounded Vault Lexicon Cleanup (`clean_transcript.py`)**:
+   - Applied a hard Levenshtein clamp ($\le 2$) anchored to 10 years of personal Obsidian notes (166k words).
+   - Applied **3,806 word corrections** across 509 files without hallucinating or smoothing authentic phrasing (*"awhile frettingly"*, *Catsby*, *Cheddars*, *Dan Hon*, *Lamy*, *AL-star*, *BOOX*).
+3. **Zero-Friction Active Learning Flywheel (`harvest_corrections.py`)**:
+   - Eliminated the labeling UI bottleneck for daily use.
+   - The user edits Markdown directly in Obsidian. `harvest_corrections.py` diffs against `<stem>.raw.md` (or the backup tarball), crops the exact physical ink stroke strips from the source PDF, and updates `spot_corrections/dataset.csv`.
+   - **179 verified lines harvested** into the active simmer buffer across `2026-01-01`, `2026-10-21`, and `2026-10-22`.
+4. **Asymmetric Homelab Split**:
+   - **Linux Ingest VM (Proxmox CPU-only)**: Always-on daily ingestion and harvesting engine.
+   - **Portia (MacBook Pro M5 Max GPU)**: On-demand training forge for multi-epoch training and 90-second simmer bursts.
+5. **Clean Public/Private Architecture**:
+   - Decoupled code (`handwriting-recognition` on GitHub) from private datasets (`handwriting-data` on Forgejo `myriad-docker:22222`).
+   - Squashed 29 development commits (`7132087`) to permanently expunge personal journal text from public GitHub history.
+6. **Zero-Argument Automation (`Makefile`)**:
+   - `make transcribe`: Automatically finds untranscribed PDFs in `notepads/journals/`, transcribes, polishes, and places `.md` and `.raw.md` directly into the vault.
+   - `make harvest`: Automatically finds edited notes, extracts ink strips, appends to the dataset, commits, and pushes to Forgejo.
 
 ---
 
-## 2. Core Invariants & Architectural Lessons
+## 2. Directory & Machine Layout
 
-1. **No Blind Generative Post-Processing**:
-   Text-only LLMs suffer from hallucinatory smoothing (substituting *"all the spring"* for authentic *"awhile frettingly"*, and *"tuna"* for *"turkey"*). The fine-tuned TrOCR vision model must remain the sole source of truth.
-2. **Corpus Growth Solves Vocabulary Sparsity**:
-   Words like *"turkey"*, *"lentil"*, *"afternoon"*, and *"Claude"* failed in Run 8 because they had essentially 0 occurrences in the 15-volume training set. Doubling the dataset to 30 volumes injects these vocabulary priors directly into the weights.
-3. **10-Epoch Optimization Sweet Spot**:
-   Empirical loss curves prove that 10 epochs with linear LR decay hit the mathematical minimum for this dataset scale.
-4. **`load_best_model_at_end=True`**:
-   Guarantees the lowest-CER checkpoint is preserved as `trocr_finetuned/best_model`.
+```text
+Host: Portia (~/devel/mine/) & Linux VM (workspace/)
+├── handwriting-recognition/         [Public GitHub Repo: 7132087..51deb7a]
+│   ├── Makefile                    # Zero-arg commands (transcribe, harvest, simmer, etc.)
+│   ├── .env                        # Local paths (ignored by Git)
+│   ├── extract_lines.py            # PDF vector ink extraction & landscape split
+│   ├── train_trocr.py              # Fine-tuning harness (MPS & CUDA)
+│   ├── train_simmer.py             # Fast GPU burst with experience replay
+│   ├── transcribe_journal.py       # Full production batch transcriber
+│   ├── clean_transcript.py         # Levenshtein vault lexicon post-processor
+│   ├── harvest_corrections.py      # Obsidian diff ink stroke harvester
+│   ├── label_ui.py                 # Multi-batch local web review tool
+│   ├── FINDINGS.md                 # 18-section technical report
+│   ├── BLOG_POST_OUTLINE.md        # 7-Act narrative arc for blog.lmorchard.com
+│   ├── docs/
+│   │   ├── ARCHITECTURE.md         # Compute split & repo firewall
+│   │   └── PDF_EXTRACTION.md       # Vector /Ink reverse engineering
+│   └── charts/                     # 300-DPI publication plots
+│
+└── handwriting-data/               [Private Forgejo Repo: 0xDECAFBAD hub]
+    ├── batches/                    # 30 verified training batches (2,721 lines)
+    ├── spot_corrections/           # 179 harvested lines + cropped PNG strips
+    ├── vocab/                      # 166k vault unigrams & English dictionary
+    └── models/                     # [Ignored by Git]
+        └── best_model/             # 1.3 GB fine-tuned weights (2.27% CER)
+```
 
 ---
 
-## 3. Next Steps Once Run 9 Finishes
+## 3. Daily Operational Cheat Sheet
 
-1. **Evaluate Run 9 Checkpoint**:
-   - Inspect final validation CER and loss curves across the 409 unseen validation lines.
-   - Run re-transcription of `2025-08-28.pdf` to verify resolution of *afternoon*, *turkey*, *lentil*, and *Claude*.
-2. **Update Visualizations & Curves (Done)**:
-   - Generated 300-DPI publication plots (`charts/cer_by_epoch.png`, `charts/loss_by_epoch.png`, `charts/scaling_law.png`).
-   - Updated Canvas dashboard tab `canvas_14` with the Run 9 (2,721 lines, 2.27% CER) curves and summary table.
-3. **Full Vault Archive Sweep (Active in Background on Portia)**:
-   - Launched PID `55931` processing all **523 journal PDFs** (2014–2026).
-   - Destination: `/Users/lmorchard/Documents/obsidian/main/notepads/transcriptions/` nested by year (`2014/`, `2022/`, `2023/`, `2024/`, `2025/`, `2026/`).
-   - Idempotent `--skip-existing` enabled; atomic JSON tracking in `manifest.json`.
-   - Error trapping to `transcription_errors.log`.
-   - Total estimated duration: ~2h 15m (finishing ~09:45 AM).
-4. **Draft the Blog Post**:
-   - Using `BLOG_POST_OUTLINE.md`, draft the full essay for `blog.lmorchard.com`.
+For daily maintenance, the user runs two commands:
+
+```bash
+# 1. Morning / After writing on BOOX tablet:
+make transcribe
+# -> Finds new PDF, transcribes with TrOCR, applies vault polish, drops .md and .raw.md in vault
+
+# 2. Human touch:
+# -> Open Obsidian, read note, fix any typos directly in Markdown
+
+# 3. After editing in Obsidian:
+make harvest
+# -> Auto-diffs against .raw.md, crops ink strips, updates dataset, commits & pushes to Forgejo
+```
+
+For historical archive entries:
+* **Re-transcribe with latest model**: `make transcribe PDF=2023-06-13.pdf` $\to$ edit $\to$ `make harvest NOTE=...`
+* **Fix typos in existing archive note**: Edit in Obsidian $\to$ `make harvest NOTE=notepads/transcriptions/2024/2024-05-12.md`
+
+---
+
+## 4. Phase 2 Scope & Roadmap
+
+When picking up this project for the next phase, focus on these three tracks:
+
+### Track 1: First Simmer Retraining Run
+* The active simmer buffer in `handwriting-data/spot_corrections/dataset.csv` has reached **179 lines** (well past the 50–100 line threshold).
+* **Command to run on Portia**:
+  ```bash
+  make simmer
+  ```
+* **Verify**:
+  * Ensure experience replay mixes the 179 new spot lines with random samples from the 30 baseline batches (prevents catastrophic forgetting).
+  * Run a fast 90-second GPU burst (~3 epochs at lr=2e-5).
+  * Evaluate CER on validation lines and update `best_model`.
+
+### Track 2: Draft the Blog Post for `blog.lmorchard.com`
+* Use `BLOG_POST_OUTLINE.md` (which is already structured into a 7-Act narrative tuned to Les Orchard's writing voice).
+* Focus on:
+  * The "Tuna vs. Turkey" moment (why text LLMs commit literary forgery on personal journals).
+  * The vector PDF discovery (Onyx putting dot grids in raster and handwriting in vector `/Ink`).
+  * The steep scaling curve (84 lines $\to$ 16% CER $\to$ 2,721 lines $\to$ 2.27% CER).
+  * The homelab asymmetric split and zero-friction active learning.
+* Include the high-res charts in `charts/` (`cer_by_epoch.png`, `scaling_law.png`).
+
+### Track 3: Physical Paper Notebook Scans (The True Computer Vision Challenge)
+* **The Problem**: Digital e-ink was "easy mode" because Onyx gave us vector stroke coordinates without lighting, perspective, or scan noise.
+* **Requirements for Physical Notebooks**:
+  1. **Dot-Grid Removal on Raster**:
+     - Unlike BOOX PDFs, physical notebooks have real ink drawn on printed dot-grid paper.
+     - Implement morphological opening / adaptive thresholding or a small U-Net / perceptual filter to strip the 5mm dot grid without thinning handwriting strokes.
+  2. **Perspective & Page Dewarping**:
+     - Handle phone photos / flatbed scans: desk angle correction, boundary corner detection, and page curvature unwarping.
+  3. **Line Segmentation on Real Paper**:
+     - Because there are no vector `/Annots`, use CRAFT, YOLOv8-obb, or horizontal projection profile slicing on the cleaned raster.
+  4. **Fine-Tuning on Paper Ingest**:
+     - TrOCR already knows the author's small-caps glyphs from Phase 1. The fine-tuning task in Phase 2 is adapting to ballpoint / fountain pen stroke thickness and paper fiber bleed.
+
+---
+
+## 5. Key Invariants for Future Maintainers
+
+* **Never use unconstrained generative LLMs for transcription cleanup**: Text-only LLMs will erase authentic voice (*"awhile frettingly"*, pet names, homelab jargon). All post-processing must use the Levenshtein-clamped lexicon in `clean_transcript.py` ($\le 2$ edit distance).
+* **Never commit personal datasets to the public repo**: All batches, CSVs, and image strips belong strictly in `../handwriting-data` (Forgejo). `handwriting-recognition/.gitignore` is strictly configured to enforce this.
+* **Keep `models/` out of Git**: Model checkpoints (`model.safetensors` ~1.3 GB) live in `handwriting-data/models/` and are ignored by Git to prevent repo bloating.
